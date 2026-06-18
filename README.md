@@ -31,3 +31,6 @@ pip install transformers torch openpyxl pandas numpy scikit-learn matplotlib sea
 ## Output
 
 Hasil penilaian disimpan ke `Hasil_AES_IndoBERT_Cosine.xlsx`, ringkasan statistik ke `ringkasan_aes.json`, dan seluruh pipeline ke `aes_pipeline.pkl`.
+
+## Link 
+https://penilaian-esai-otomatis-sejarah-indonesia.streamlit.app/
