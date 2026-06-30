@@ -405,41 +405,71 @@ def page_inference(pipeline, tokenizer, model, device):
             st.markdown("<div class='section-title'>Input Jawaban</div>",
                         unsafe_allow_html=True)
 
-            # Nama siswa — bisa dikosongkan, opsional
             nama_siswa = st.text_input(
-                "Nama Siswa",
+                "Nama Siswa (opsional)",
                 placeholder="Contoh: Budi Santoso",
                 key="inp_nama"
             )
 
-            # Selectbox di LUAR form → update real-time
-            topik_sel = st.selectbox("Pilih Topik", topik_list, key="sel_topik")
-
-            soal_options = sorted(
-                kunci_df[kunci_df['topik'] == topik_sel]['id_pertanyaan']
-                .unique().tolist()
-            )
-            qid_sel = st.selectbox(
-                "Pilih Nomor Soal", soal_options,
-                format_func=lambda x: f"Soal {x}",
-                key="sel_soal"
+            # Mode penilaian: pakai kunci pipeline atau kunci sendiri
+            mode_kunci = st.radio(
+                "Mode Kunci Jawaban",
+                ["📚 Pakai kunci dari dataset penelitian", "✏️ Input kunci jawaban sendiri"],
+                key="mode_kunci",
+                horizontal=True
             )
 
-            # Pertanyaan update real-time
-            pertanyaan_row = kunci_df[
-                (kunci_df['topik'] == topik_sel) &
-                (kunci_df['id_pertanyaan'] == qid_sel)
-            ]
-            if len(pertanyaan_row):
-                teks_pertanyaan = pertanyaan_row.iloc[0]['pertanyaan']
-                st.markdown(
-                    f"<div class='box-pertanyaan'>"
-                    f"❓ <b>Pertanyaan Soal {qid_sel}:</b><br>{teks_pertanyaan}"
-                    f"</div>",
-                    unsafe_allow_html=True
+            kunci_jawaban_aktif = ""
+            pertanyaan_aktif    = ""
+            topik_aktif         = ""
+            qid_aktif           = None
+
+            if mode_kunci == "📚 Pakai kunci dari dataset penelitian":
+                topik_sel = st.selectbox("Pilih Topik", topik_list, key="sel_topik")
+                soal_options = sorted(
+                    kunci_df[kunci_df['topik'] == topik_sel]['id_pertanyaan']
+                    .unique().tolist()
                 )
+                qid_sel = st.selectbox(
+                    "Pilih Nomor Soal", soal_options,
+                    format_func=lambda x: f"Soal {x}", key="sel_soal"
+                )
+                pertanyaan_row = kunci_df[
+                    (kunci_df['topik'] == topik_sel) &
+                    (kunci_df['id_pertanyaan'] == qid_sel)
+                ]
+                if len(pertanyaan_row):
+                    pertanyaan_aktif    = pertanyaan_row.iloc[0]['pertanyaan']
+                    kunci_jawaban_aktif = pertanyaan_row.iloc[0]['kunci_jawaban']
+                    topik_aktif         = topik_sel
+                    qid_aktif           = qid_sel
+                    st.markdown(
+                        f"<div class='box-pertanyaan'>"
+                        f"❓ <b>Pertanyaan Soal {qid_sel}:</b><br>{pertanyaan_aktif}"
+                        f"</div>",
+                        unsafe_allow_html=True
+                    )
+            else:
+                # Mode bebas — guru input kunci sendiri
+                st.info("💡 Ketik kunci jawaban kamu sendiri. Sistem akan menilai berdasarkan kemiripan semantik dengan IndoBERT.")
+                topik_aktif = st.text_input(
+                    "Nama Topik / Mata Pelajaran",
+                    placeholder="Contoh: Proklamasi Kemerdekaan Indonesia",
+                    key="inp_topik_bebas"
+                )
+                pertanyaan_aktif = st.text_input(
+                    "Pertanyaan / Soal (opsional)",
+                    placeholder="Contoh: Jelaskan latar belakang proklamasi kemerdekaan!",
+                    key="inp_pertanyaan_bebas"
+                )
+                kunci_jawaban_aktif = st.text_area(
+                    "✏️ Kunci Jawaban Guru",
+                    placeholder="Ketik kunci jawaban yang benar di sini...",
+                    height=130,
+                    key="inp_kunci_bebas"
+                )
+                qid_aktif = 0
 
-            # Form hanya text_area + submit
             with st.form("form_satu"):
                 jawaban_input = st.text_area(
                     "Jawaban Siswa",
@@ -452,22 +482,22 @@ def page_inference(pipeline, tokenizer, model, device):
                     type="primary"
                 )
 
-        # ── Kolom kanan: panduan + kunci ──────────────────────────────────────
+        # Kolom kanan: panduan skor
         with col_info:
             st.markdown("<div class='section-title'>Panduan Skor</div>",
                         unsafe_allow_html=True)
             st.markdown(f"""
             <div class="metric-card green" style="margin-bottom:8px">
                 <b>✅ Sangat Sesuai</b><br>
-                <span style="font-size:0.85rem">Skor ≥ {thr['sangat_sesuai']}</span>
+                <span style="font-size:0.85rem">Skor &ge; {thr['sangat_sesuai']}</span>
             </div>
             <div class="metric-card yellow" style="margin-bottom:8px">
                 <b>🟡 Cukup Sesuai</b><br>
-                <span style="font-size:0.85rem">Skor ≥ {thr['cukup_sesuai']}</span>
+                <span style="font-size:0.85rem">Skor &ge; {thr['cukup_sesuai']}</span>
             </div>
             <div class="metric-card orange" style="margin-bottom:8px">
                 <b>🟠 Kurang Sesuai</b><br>
-                <span style="font-size:0.85rem">Skor ≥ {thr['kurang_sesuai']}</span>
+                <span style="font-size:0.85rem">Skor &ge; {thr['kurang_sesuai']}</span>
             </div>
             <div class="metric-card red" style="margin-bottom:8px">
                 <b>🔴 Tidak Sesuai</b><br>
@@ -475,29 +505,48 @@ def page_inference(pipeline, tokenizer, model, device):
             </div>
             """, unsafe_allow_html=True)
 
-            if len(pertanyaan_row):
+            if kunci_jawaban_aktif:
                 with st.expander("🔑 Lihat Kunci Jawaban"):
                     st.markdown(
-                        f"<div class='box-kunci'>"
-                        f"{pertanyaan_row.iloc[0]['kunci_jawaban']}</div>",
+                        f"<div class='box-kunci'>{kunci_jawaban_aktif}</div>",
                         unsafe_allow_html=True
                     )
 
-        # ── Hasil penilaian ───────────────────────────────────────────────────
+        # Hasil penilaian
         if submitted:
             if not jawaban_input.strip():
                 st.warning("⚠️ Jawaban tidak boleh kosong.")
                 st.stop()
+            if not kunci_jawaban_aktif.strip():
+                st.warning("⚠️ Kunci jawaban tidak boleh kosong. Pilih soal dari dataset atau ketik kunci jawaban sendiri.")
+                st.stop()
 
             with st.spinner("⏳ Menghitung skor dengan IndoBERT..."):
-                hasil = score_jawaban(
-                    jawaban_input, topik_sel, qid_sel,
-                    pipeline, tokenizer, model, device
+                emb_siswa = encode_text(
+                    jawaban_input, tokenizer, model, device,
+                    pipeline['max_length'], pipeline['embedding_strategy']
+                )
+                emb_kunci = encode_text(
+                    kunci_jawaban_aktif, tokenizer, model, device,
+                    pipeline['max_length'], pipeline['embedding_strategy']
                 )
 
-            if hasil is None:
-                st.error("❌ Gagal memproses jawaban. Periksa kombinasi topik dan soal.")
+            if emb_siswa is None or emb_kunci is None:
+                st.error("❌ Gagal memproses teks. Pastikan jawaban dan kunci tidak kosong.")
                 st.stop()
+
+            sim   = float(np.clip(cos_sim_sklearn(emb_siswa, emb_kunci)[0][0], 0, 1))
+            skor  = round(sim * 100, 2)
+            hasil = {
+                'topik'            : topik_aktif or "—",
+                'id_pertanyaan'    : qid_aktif if qid_aktif is not None else 0,
+                'pertanyaan'       : pertanyaan_aktif,
+                'jawaban_input'    : jawaban_input,
+                'kunci_jawaban'    : kunci_jawaban_aktif,
+                'cosine_similarity': round(sim, 6),
+                'skor_aes'         : skor,
+                'kategori'         : kategorikan(skor, thr),
+            }
 
             st.markdown("---")
 
@@ -615,7 +664,10 @@ def page_inference(pipeline, tokenizer, model, device):
             key="dl_template"
         )
 
-        st.markdown("**Kolom yang dibutuhkan sudah sesuai template.**")
+        st.markdown(
+            "**Kolom wajib:** `nama`, `topik`, `id_pertanyaan`, `jawaban_siswa`, `kunci_jawaban`. "
+            "Kunci jawaban diisi sendiri oleh guru — soal/topik **tidak harus** sama dengan dataset penelitian."
+        )
 
         uploaded = st.file_uploader(
             "Upload file jawaban siswa",
@@ -629,57 +681,62 @@ def page_inference(pipeline, tokenizer, model, device):
                             if uploaded.name.endswith('.csv')
                             else pd.read_excel(uploaded))
 
-                required = {'nama', 'topik', 'id_pertanyaan', 'jawaban_siswa'}
+                required = {'nama', 'topik', 'id_pertanyaan', 'jawaban_siswa', 'kunci_jawaban'}
                 missing  = required - set(df_batch.columns)
                 if missing:
                     st.error(f"❌ Kolom tidak ditemukan: {missing}")
                 else:
                     st.info(f"📄 {len(df_batch)} jawaban ditemukan. Memulai penilaian...")
-                    results = []
-                    prog    = st.progress(0, "Memproses...")
+                    results  = []
+                    n_kosong = 0
+                    prog     = st.progress(0, "Memproses...")
 
                     for idx, row_b in df_batch.iterrows():
-                        h = score_jawaban(
-                            str(row_b['jawaban_siswa']),
-                            str(row_b['topik']),
-                            int(row_b['id_pertanyaan']),
-                            pipeline, tokenizer, model, device
+                        jwb   = str(row_b.get('jawaban_siswa', '')).strip()
+                        kunci = str(row_b.get('kunci_jawaban', '')).strip()
+
+                        if not jwb or jwb.lower() == 'nan' or not kunci or kunci.lower() == 'nan':
+                            n_kosong += 1
+                            prog.progress((idx + 1) / len(df_batch))
+                            continue
+
+                        emb_siswa = encode_text(
+                            jwb, tokenizer, model, device,
+                            pipeline['max_length'], pipeline['embedding_strategy']
                         )
-                        if h:
+                        emb_kunci = encode_text(
+                            kunci, tokenizer, model, device,
+                            pipeline['max_length'], pipeline['embedding_strategy']
+                        )
+
+                        if emb_siswa is None or emb_kunci is None:
+                            n_kosong += 1
+                        else:
+                            sim  = float(np.clip(cos_sim_sklearn(emb_siswa, emb_kunci)[0][0], 0, 1))
+                            skor = round(sim * 100, 2)
                             results.append({
-                                'Nama Siswa'        : row_b['nama'],
-                                'Topik'             : row_b['topik'],
-                                'No. Soal'          : row_b['id_pertanyaan'],
-                                'Kesesuaian (%)'    : round(h['cosine_similarity']*100, 1),
-                                'Skor AES (0-100)'  : h['skor_aes'],
-                                'Kategori'          : h['kategori'],
+                                'Nama Siswa'        : row_b.get('nama', '—'),
+                                'Topik'             : row_b.get('topik', '—'),
+                                'No. Soal'          : row_b.get('id_pertanyaan', '—'),
+                                'Kesesuaian (%)'    : round(sim * 100, 1),
+                                'Skor AES (0-100)'  : skor,
+                                'Kategori'          : kategorikan(skor, thr),
                             })
                         prog.progress((idx + 1) / len(df_batch))
 
                     df_res = pd.DataFrame(results)
-                    n_gagal = len(df_batch) - len(df_res)
 
                     if df_res.empty:
                         st.warning(
-                            f"⚠️ Semua {len(df_batch)} jawaban gagal dinilai. "
-                            "Pastikan kolom **topik** dan **id_pertanyaan** di file "
-                            "sesuai dengan data yang ada di pipeline."
+                            f"⚠️ Semua {len(df_batch)} baris gagal dinilai. "
+                            "Pastikan kolom **jawaban_siswa** dan **kunci_jawaban** terisi "
+                            "(tidak kosong) di setiap baris."
                         )
-                        # Tampilkan topik & soal yang tersedia di pipeline untuk debug
-                        kunci_df_ref = pipeline['kunci_unik']
-                        with st.expander("🔍 Topik & Soal yang tersedia di pipeline"):
-                            st.dataframe(
-                                kunci_df_ref[['topik','id_pertanyaan','pertanyaan']]
-                                .drop_duplicates()
-                                .sort_values(['topik','id_pertanyaan'])
-                                .reset_index(drop=True),
-                                use_container_width=True, hide_index=True
-                            )
                         with st.expander("🔍 Preview data yang diupload"):
                             st.dataframe(df_batch.head(10), use_container_width=True)
                     else:
                         st.success(f"✅ {len(df_res)} jawaban berhasil dinilai."
-                                   + (f" ({n_gagal} baris dilewati karena topik/soal tidak cocok.)" if n_gagal else ""))
+                                   + (f" ({n_kosong} baris dilewati karena jawaban/kunci kosong.)" if n_kosong else ""))
 
                         # Ringkasan cepat
                         r1, r2, r3, r4 = st.columns(4)
